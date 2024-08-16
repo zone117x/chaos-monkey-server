@@ -8,7 +8,7 @@ dotenv.config();
 
 async function main() {
   const fastify = Fastify({
-    logger: true,
+    logger: { level: 'debug' }
   }).withTypeProvider<TypeBoxTypeProvider>();
 
   await fastify.register(fastifyEnv, {
@@ -42,24 +42,27 @@ async function main() {
   });
 
   fastify.addHook('onRequest', async (request, reply) => {
-    const logPrefix = `Request ${request.method} ${request.url}:`;
+    const requestLogger = fastify.log.child({ method: request.method, url: request.url });
     const action = pickWeightedAction();
 
     switch (action) {
       case 'error':
-        fastify.log.warn(`${logPrefix} Triggered 500 Chaos Monkey Error`);
+        requestLogger.warn(`Triggered 500 Chaos Monkey Error`);
         reply.status(500).send('Chaos Monkey Error!');
         return;
 
       case 'delay':
         const delay = config.CHAOS_MONKEY_DELAY_RESPONSE_DURATION * 1000;
-        fastify.log.warn(`${logPrefix} Delaying response by ${delay} ms`);
+        requestLogger.warn(`Delaying response by ${delay} ms`);
         await new Promise((resolve) => setTimeout(resolve, delay));
         break;
 
       case 'noResponse':
-        fastify.log.warn(`${logPrefix} Not responding (indefinite timeout)`);
+        requestLogger.warn(`Not responding (indefinite timeout)`);
         reply.raw.setTimeout(0); // Disable server timeout for this specific request
+        reply.raw.on('close', () => {
+          requestLogger.warn(`Client closed an indefinite timeout request`);
+        });
         await new Promise(() => {}); // Simulate hanging request indefinitely
         return;
 
